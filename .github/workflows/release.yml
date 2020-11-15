@@ -1,0 +1,123 @@
+name: create-release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1.15
+
+      - uses: actions/github-script@v3
+        name: Clean ref
+        id: clean-ref
+        with:
+          result-encoding: string
+          script: return context.ref.split("/")[2]
+
+      - uses: actions/github-script@v3
+        name: Generate Changelog
+        id: generate-changelog
+        with:
+          result-encoding: string
+          script: |
+            const query = `query($owner:String!, $name:String!) {
+              repository(owner:$owner, name:$name){
+                refs(refPrefix: "refs/tags/", last: 2) {
+                  nodes {
+                    name
+                  }
+                }
+              }
+            }`;
+            const variables = {
+              owner: context.repo.owner,
+              name: context.repo.repo,
+            };
+            const tags = await github.graphql(query, variables);
+            const baseTag = tags.repository.refs.nodes[0].name;
+            const headTag = tags.repository.refs.nodes[1].name;
+
+            const comp = await github.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: baseTag,
+              head: headTag,
+            });
+            var commit_data = {}
+            comp.data.commits.map((commit) => {
+              const groups = commit.commit.message.match(/(.*?)(?:\((.*)\))?\:\s*(.*)/);
+              if (groups === null || groups === undefined) {
+                return;
+              }
+              key = groups[2] === undefined ? "zall" : groups[2];
+              if (commit_data[groups[1]] === undefined) {
+                commit_data[groups[1]] = {}
+              }
+              if (commit_data[groups[1]][key] === undefined) {
+                commit_data[groups[1]][key] = [];
+              }
+              commit_data[groups[1]][key].push({
+                msg: groups[3],
+                url: commit.html_url,
+              });
+            });
+            var result = "# Changelog:\n";
+            for (const [type, specs] of Object.entries(commit_data)) {
+              result = result + "  - # " + type + ":\n";
+              for (const [spec, msgs] of Object.entries(specs)) {
+                if (spec === "zall") {
+                  for (const msg of msgs) {
+                    result = result + "    - [**commit**](" + msg.url + ") " + msg.msg + "\n";
+                  }
+                } else {
+                  result = result + "    - **" + spec + "**:\n";
+                  for (const msg of msgs) {
+                    result = result + "      - [**commit**](" + msg.url + ") " + msg.msg + "\n";
+                  }
+                }
+              }
+            }
+            return result;
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: ${{steps.generate-changelog.outputs.result}}
+          draft: false
+          prerelease: false
+
+      - name: Get dependencies
+        run: go get -v -t -d ./...
+
+      - name: Build
+        run: make
+
+      - name: Package
+        run: |
+          mv bin/konfig ./konfig
+          zip ./konfig-${{steps.clean-ref.outputs.result}}-amd64.zip ./konfig
+
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./konfig-${{steps.clean-ref.outputs.result}}-amd64.zip
+          asset_name: ./konfig-${{steps.clean-ref.outputs.result}}-amd64.zip
+          asset_content_type: application/zip
