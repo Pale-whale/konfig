@@ -42,6 +42,7 @@ func init() {
   rootCmd.AddCommand(getCommand)
   rootCmd.AddCommand(backupCommand)
   rootCmd.AddCommand(doctorCommand)
+  rootCmd.AddCommand(completionCommand)
 }
 
 func findDefaultConfig() string {
