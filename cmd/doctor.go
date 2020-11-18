@@ -132,7 +132,6 @@ func _doctorCommand(cmd *cobra.Command, args []string) {
   internal.RemoveUsers(config, orphanedUsers)
 
   config.OutputReplace()
-
 }
 
 func promptDelete(baseStr string, toDelete []string, header string) []string {
@@ -149,7 +148,7 @@ func promptDelete(baseStr string, toDelete []string, header string) []string {
     if err != nil {
       toDelete = []string{}
     }
-    if confirm != 'y' {
+    if confirm != 'y' && confirm != 'Y' {
       toDelete = []string{}
     }
   }
